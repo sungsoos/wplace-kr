@@ -1,6 +1,6 @@
 # wplace-kr
 
-[wplace](https://wplace.live) 한국어 번역 Tampermonkey 스크립트.
+[wplace](https://wplace.live) 한국어 번역 (AI 번역) Tampermonkey 스크립트.
 
 ## 설치
 
