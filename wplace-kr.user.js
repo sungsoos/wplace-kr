@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         wplace 한국어 번역
 // @namespace    https://wplace.live
-// @version      1.1.0
+// @version      1.3.0
 // @description  wplace.live를 한국어로 번역합니다.
 // @author       sungsoos
 // @match        *://*.wplace.live/*
-// @run-at       document-start
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_info
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
 // @license      MIT
 // ==/UserScript==
 
@@ -3429,100 +3430,71 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
     return (window.WPLACE_TRANSLATIONS && window.WPLACE_TRANSLATIONS.ko) || {};
   }
 
+  // 사전 캐시: 한 번만 구축, 이후 O(1) 조회
+  let _cacheBuilt = false;
+  let _exactCache = null;
+  let _caseCache = null;
+  let _patternEntries = null;
+
+  function buildCache() {
+    if (_cacheBuilt) return;
+    _cacheBuilt = true;
+    const dict = getDict();
+    _exactCache = {};
+    _caseCache = [];
+    _patternEntries = [];
+    for (const k in dict) {
+      const v = dict[k];
+      _exactCache[k] = v;
+      if (k === k.toLowerCase() || k === k.toUpperCase()) {
+        // 이미 모두 소문자 or 대문자면 caseCache 불필요
+      } else {
+        _caseCache.push({ key: k, val: v });
+      }
+      const hasParams = k.includes("{") && k.includes("}");
+      const hasE = k.includes("{e}");
+      if (!hasParams || hasE) continue;
+      try {
+        const esc = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const patternStr = "^" + esc.replace(/\\\{([a-zA-Z0-9_]+)\\\}/g, (_, p) =>
+          p === "n" ? "([\\d,\\.]+)" : "([\\s\\S]+?)") + "$";
+        _patternEntries.push({ regex: new RegExp(patternStr, "i"), key: k, val: v });
+      } catch {}
+    }
+  }
+
   function translateText(text) {
     if (!text || typeof text !== "string" || !text.trim()) return text;
     if (!isKorActive()) return text;
+    buildCache();
 
-    const dict = getDict();
     const trimmed = text.trim();
 
-    // 일치
-    if (dict[trimmed] !== undefined) {
-      return text.replace(trimmed, dict[trimmed]);
-    }
-    if (dict[text] !== undefined) {
-      return dict[text];
-    }
+    // O(1)exact match
+    if (_exactCache[trimmed] !== undefined) return text.replace(trimmed, _exactCache[trimmed]);
+    if (_exactCache[text] !== undefined) return _exactCache[text];
 
-    // 대소문자 무시 일치
+    // Case-insensitive fast path
     const lower = trimmed.toLowerCase();
-    for (const k in dict) {
-      if (k.toLowerCase() === lower) {
-        return text.replace(trimmed, dict[k]);
+    for (let i = 0; i < _caseCache.length; i++) {
+      if (_caseCache[i].key.toLowerCase() === lower) {
+        return text.replace(trimmed, _caseCache[i].val);
       }
     }
 
-    // 패턴에 따른 교체 ({word} 자리표시자)
-    let best = -1, bestRep = null;
-    for (const k in dict) {
-      if (k.includes("{e}")) continue;
-      if (!k.includes("{") || !k.includes("}")) continue;
-      const paramNames = [...k.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map(m => m[1]);
-      const esc = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = "^" + esc.replace(/\\\{([a-zA-Z0-9_]+)\\\}/g, (_, p) =>
-        p === "n" ? "([\\d,\\.]+)" : "([\\s\\S]+?)") + "$";
-      try {
-        const match = trimmed.match(new RegExp(pattern, "i"));
-        if (match && k.length > best) {
-          let idx = 1;
-          const cap = {};
-          for (const p of paramNames) cap[p] = match[idx++] ?? "";
-          best = k.length;
-          bestRep = dict[k].replace(/\{([a-zA-Z0-9_]+)\}/g, (mm, p) => cap[p] ?? mm);
-        }
-      } catch {}
+    // Pattern match (pre-compiled regex)
+    for (let i = 0; i < _patternEntries.length; i++) {
+      const entry = _patternEntries[i];
+      const match = trimmed.match(entry.regex);
+      if (match) {
+        const paramNames = [...entry.key.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map(m => m[1]);
+        let idx = 1;
+        const cap = {};
+        for (const p of paramNames) cap[p] = match[idx++] ?? "";
+        return text.replace(trimmed, entry.val.replace(/\{([a-zA-Z0-9_]+)\}/g, (mm, p) => cap[p] ?? mm));
+      }
     }
-    if (bestRep != null) return text.replace(trimmed, bestRep);
     return text;
-  }
-
-  // DOM 후킹
-  try {
-    const origCreateTextNode = Document.prototype.createTextNode;
-    Document.prototype.createTextNode = function(data) {
-      return origCreateTextNode.call(this, translateText(data));
-    };
-
-    const origDataDesc = Object.getOwnPropertyDescriptor(CharacterData.prototype, "data");
-    if (origDataDesc && origDataDesc.set && origDataDesc.get) {
-      const origDataGet = origDataDesc.get;
-      const origDataSet = origDataDesc.set;
-      Object.defineProperty(CharacterData.prototype, "data", {
-        get() {
-          return origDataGet.call(this);
-        },
-        set(val) {
-          origDataSet.call(this, translateText(val));
-        },
-        configurable: true
-      });
-    }
-
-    const origNodeValueDesc = Object.getOwnPropertyDescriptor(Node.prototype, "nodeValue");
-    if (origNodeValueDesc && origNodeValueDesc.set && origNodeValueDesc.get) {
-      const origNodeValueGet = origNodeValueDesc.get;
-      const origNodeValueSet = origNodeValueDesc.set;
-      Object.defineProperty(Node.prototype, "nodeValue", {
-        get() {
-          return origNodeValueGet.call(this);
-        },
-        set(val) {
-          origNodeValueSet.call(this, translateText(val));
-        },
-        configurable: true
-      });
-    }
-
-    const origSetAttribute = Element.prototype.setAttribute;
-    const TRANSLATABLE_ATTRS = new Set(["title", "placeholder", "aria-label", "alt", "data-tip", "data-tooltip"]);
-    Element.prototype.setAttribute = function(name, value) {
-      if (TRANSLATABLE_ATTRS.has(name?.toLowerCase())) {
-        value = translateText(value);
-      }
-      return origSetAttribute.call(this, name, value);
-    };
-  } catch (err) {
-    console.error("[wplace-kr] DOM hook error:", err);
   }
 
   // 대충 여러 지원 함수
@@ -3558,35 +3530,6 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
     }
     if (bestRep != null) return bestRep;
     return null;
-  }
-
-  try {
-    const origInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
-    if (origInnerHTML && origInnerHTML.set) {
-      Object.defineProperty(Element.prototype, "innerHTML", {
-        configurable: true,
-        enumerable: origInnerHTML.enumerable,
-        get() { return origInnerHTML.get.call(this); },
-        set(value) {
-          if (typeof value === "string") {
-            const rep = matchHTMLKey(value);
-            if (rep != null) value = rep;
-          }
-          return origInnerHTML.set.call(this, value);
-        }
-      });
-    }
-
-    const origIAH = Element.prototype.insertAdjacentHTML;
-    Element.prototype.insertAdjacentHTML = function(position, text) {
-      if (typeof text === "string") {
-        const rep = matchHTMLKey(text);
-        if (rep != null) text = rep;
-      }
-      return origIAH.call(this, position, text);
-    };
-  } catch (err) {
-    console.error("[wplace-kr] HTML 후킹 오류:", err);
   }
 
   function getLangKeyFromButton(button) {
@@ -3751,18 +3694,6 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
       const tag = root.tagName;
       if (tag === "SCRIPT" || tag === "STYLE" || tag === "CANVAS") return;
 
-      // innerHTML 번역
-      try {
-        const html = root.innerHTML;
-        if (html && html.includes("<")) {
-          const rep = matchHTMLKey(html);
-          if (rep != null) {
-            root.innerHTML = rep;
-            return;
-          }
-        }
-      } catch {}
-
       for (const attr of ["title", "placeholder", "aria-label", "alt", "data-tip"]) {
         const val = root.getAttribute(attr);
         if (val) {
@@ -3782,24 +3713,24 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
     addKoreanToMenu();
     if (document.body) walkAndTranslate(document.body);
 
+    let _walking = false;
     const observer = new MutationObserver(mutations => {
+      if (_walking) return;
       addKoreanToMenu();
       for (const m of mutations) {
         if (m.type === "childList") {
+          _walking = true;
           for (let i = 0; i < m.addedNodes.length; i++) {
             walkAndTranslate(m.addedNodes[i]);
           }
-        } else if (m.type === "characterData") {
-          // 텍스트 노드 변경 감지
-          walkAndTranslate(m.target);
+          _walking = false;
         }
       }
     });
 
     observer.observe(document.documentElement, {
       childList: true,
-      subtree: true,
-      characterData: true
+      subtree: true
     });
   }
 
@@ -3808,6 +3739,66 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
   } else {
     init();
   }
+  
+  // 업데이트 체크
+  try {
+    const parseVer = v => v.split('.').map(n => parseInt(n, 10) || 0);
+    const verCmp = (a, b) => {
+      const x = parseVer(a), y = parseVer(b);
+      for (let i = 0; i < Math.max(x.length, y.length); i++) {
+        const dx = x[i] || 0, dy = y[i] || 0;
+        if (dx !== dy) return dx - dy;
+      }
+      return 0;
+    };
+    const currentVer = GM_info ? GM_info.version : null;
+    if (!currentVer || typeof GM_xmlhttpRequest !== "function") return;
+    const scriptUrl = "https://github.com/sungsoos/wplace-kr/raw/main/wplace-kr.user.js";
+    GM_xmlhttpRequest({
+      method: "GET",
+      url: scriptUrl,
+      onload: function (res) {
+        const text = res.responseText || "";
+        // match @version anywhere in first ~500 chars (handles BOM / // or bare @version)
+        const m = text.substring(0, 500).match(/@version\s+(\d+\.\d+\.\d+)/);
+        if (!m) return;
+        const remoteVer = m[1];
+        const dismissedKey = "wplace-kr-dismissed-" + remoteVer;
+        if (verCmp(remoteVer, currentVer) > 0 && !localStorage.getItem(dismissedKey)) {
+          GM_addStyle(`
+            #wplace-kr-update-banner {
+              position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647;
+              background: #1a73e8; color: #fff; text-align: center;
+              padding: 8px 16px; font-family: sans-serif; font-size: 14px;
+              box-shadow: 0 2px 8px rgba(0,0,0,.3);
+            }
+            #wplace-kr-update-banner a { color: #fff; text-decoration: underline; margin-left: 8px; }
+            #wplace-kr-update-banner button {
+              background: none; border: 1px solid #fff; color: #fff;
+              border-radius: 4px; padding: 2px 8px; margin-left: 12px;
+              cursor: pointer; font-size: 13px;
+            }
+          `);
+          const banner = document.createElement("div");
+          banner.id = "wplace-kr-update-banner";
+          banner.textContent = "한국어 번역 버전 " + remoteVer + "가 사용 가능합니다";
+          const link = document.createElement("a");
+          link.href = "https://github.com/sungsoos/wplace-kr";
+          link.target = "_blank";
+          link.textContent = "업데이트";
+          const dismiss = document.createElement("button");
+          dismiss.textContent = "닫기";
+          dismiss.addEventListener("click", () => {
+            localStorage.setItem(dismissedKey, "1");
+            banner.remove();
+          });
+          banner.appendChild(link);
+          banner.appendChild(dismiss);
+          document.body.prepend(banner);
+        }
+      }
+    });
+  } catch (e) {}
 })();
 
 
