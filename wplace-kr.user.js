@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         wplace 한국어 번역
 // @namespace    https://wplace.live
-// @version      1.0.0
+// @version      1.1.0
 // @description  wplace.live를 한국어로 번역합니다.
 // @author       sungsoos
 // @match        *://*.wplace.live/*
