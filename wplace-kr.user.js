@@ -4500,7 +4500,7 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
     };
     const currentVer = GM_info ? GM_info.version : null;
     if (!currentVer || typeof GM_xmlhttpRequest !== "function") return;
-    const scriptUrl = "https://github.com/sungsoos/wplace-kr/raw/main/wplace-kr.user.js";
+    const scriptUrl = "https://raw.githubusercontent.com/sungsoos/wplace-kr/refs/heads/main/wplace-kr.user.js";
     GM_xmlhttpRequest({
       method: "GET",
       url: scriptUrl,
