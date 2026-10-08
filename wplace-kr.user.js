@@ -4,6 +4,8 @@
 // @version 1.7.3
 // @description  wplace.live를 한국어로 번역합니다.
 // @author       sungsoos
+// @updateURL    https://raw.githubusercontent.com/sungsoos/wplace-kr/refs/heads/main/wplace-kr.user.js
+// @downloadURL  https://raw.githubusercontent.com/sungsoos/wplace-kr/refs/heads/main/wplace-kr.user.js
 // @match        *://*.wplace.live/*
 // @run-at       document-idle
 // @grant        GM_info
