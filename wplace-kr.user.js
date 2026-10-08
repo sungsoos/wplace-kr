@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         wplace 한국어 번역
 // @namespace    https://wplace.live
-// @version 1.6.2
+// @version 1.6.3
 // @description  wplace.live를 한국어로 번역합니다.
 // @author       sungsoos
 // @match        *://*.wplace.live/*
@@ -9,6 +9,7 @@
 // @grant        GM_info
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
+// @connect      raw.githubusercontent.com
 // @license      MIT
 // ==/UserScript==
 
@@ -3136,6 +3137,7 @@ const WPLACE_TRANSLATIONS = {
     "You do not have enough charges to paint. Erase some pixels.": "칠하기에 충전이 부족합니다. 일부 픽셀을 지우세요.",
     "You do not have permission to spend Alliance Coins.": "연합 코인을 사용할 권한이 없습니다.",
     "You don't have charges to paint. Wait to recharge.": "칠하기 충전이 없습니다. 충전될 때까지 기다려주세요.",
+    "You don't have charges to paint. Next charge in {s}": "칠하기 충전이 없습니다. 다음 충전은 {s} 후에 가능합니다.",
     "You don't have enough droplets to save a profile picture.": "프로필 그림을 저장하기에 물방울이 부족합니다.",
     "You gain 1 droplet per pixel painted and 500 Droplets per level": "칠한 픽셀당 물방울 1개를 획득하고, 레벨당 물방울 500개를 획득합니다",
     "You have already submitted an appeal for this suspension.": "이 정지에 대해 이미 이의신청을 제출했습니다.",
@@ -4487,7 +4489,7 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
     init();
   }
   
-  // 업데이트 체크
+  // 업데이트 체크 및 클라이언트 알림
   try {
     const parseVer = v => v.split('.').map(n => parseInt(n, 10) || 0);
     const verCmp = (a, b) => {
@@ -4498,53 +4500,97 @@ if (typeof window !== "undefined") window.WPLACE_TRANSLATIONS = WPLACE_TRANSLATI
       }
       return 0;
     };
-    const currentVer = GM_info ? GM_info.version : null;
-    if (!currentVer || typeof GM_xmlhttpRequest !== "function") return;
-    const scriptUrl = "https://raw.githubusercontent.com/sungsoos/wplace-kr/refs/heads/main/wplace-kr.user.js";
-    GM_xmlhttpRequest({
-      method: "GET",
-      url: scriptUrl,
-      onload: function (res) {
-        const text = res.responseText || "";
-        // match @version anywhere in first ~500 chars (handles BOM / // or bare @version)
-        const m = text.substring(0, 500).match(/@version\s+(\d+\.\d+\.\d+)/);
-        if (!m) return;
-        const remoteVer = m[1];
-        const dismissedKey = "wplace-kr-dismissed-" + remoteVer;
-        if (verCmp(remoteVer, currentVer) > 0 && !localStorage.getItem(dismissedKey)) {
+    const currentVer = (typeof GM_info !== "undefined" && GM_info && GM_info.script) ? GM_info.script.version : (typeof GM_info !== "undefined" && GM_info ? GM_info.version : "1.6.3");
+    if (!currentVer) return;
+
+    function showUpdatePopup(remoteVer) {
+      const dismissedKey = "wplace-kr-dismissed-" + remoteVer;
+      if (localStorage.getItem(dismissedKey)) return;
+
+      function renderPopup() {
+        if (document.getElementById("wplace-kr-update-banner")) return;
+
+        if (typeof GM_addStyle === "function") {
           GM_addStyle(`
             #wplace-kr-update-banner {
               position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647;
               background: #1a73e8; color: #fff; text-align: center;
-              padding: 8px 16px; font-family: sans-serif; font-size: 14px;
-              box-shadow: 0 2px 8px rgba(0,0,0,.3);
+              padding: 10px 16px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; font-size: 14px;
+              box-shadow: 0 2px 10px rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; gap: 12px;
             }
-            #wplace-kr-update-banner a { color: #fff; text-decoration: underline; margin-left: 8px; }
+            #wplace-kr-update-banner a {
+              color: #fff; text-decoration: underline; font-weight: 600; cursor: pointer;
+            }
             #wplace-kr-update-banner button {
-              background: none; border: 1px solid #fff; color: #fff;
-              border-radius: 4px; padding: 2px 8px; margin-left: 12px;
-              cursor: pointer; font-size: 13px;
+              background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.6); color: #fff;
+              border-radius: 4px; padding: 2px 10px; cursor: pointer; font-size: 13px;
+            }
+            #wplace-kr-update-banner button:hover {
+              background: rgba(255,255,255,0.3);
             }
           `);
-          const banner = document.createElement("div");
-          banner.id = "wplace-kr-update-banner";
-          banner.textContent = "한국어 번역 버전 " + remoteVer + "가 사용 가능합니다";
-          const link = document.createElement("a");
-          link.href = "https://github.com/sungsoos/wplace-kr";
-          link.target = "_blank";
-          link.textContent = "업데이트";
-          const dismiss = document.createElement("button");
-          dismiss.textContent = "닫기";
-          dismiss.addEventListener("click", () => {
-            localStorage.setItem(dismissedKey, "1");
-            banner.remove();
-          });
-          banner.appendChild(link);
-          banner.appendChild(dismiss);
-          document.body.prepend(banner);
         }
+
+        const banner = document.createElement("div");
+        banner.id = "wplace-kr-update-banner";
+        if (typeof GM_addStyle !== "function") {
+          banner.style.cssText = "position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647; background: #1a73e8; color: #fff; text-align: center; padding: 10px 16px; font-family: sans-serif; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center; gap: 12px;";
+        }
+
+        const textSpan = document.createElement("span");
+        textSpan.textContent = "wplace 한국어 번역 v" + remoteVer + "가 출시되었습니다.";
+
+        const link = document.createElement("a");
+        link.href = "https://raw.githubusercontent.com/sungsoos/wplace-kr/refs/heads/main/wplace-kr.user.js";
+        link.target = "_blank";
+        link.textContent = "업데이트";
+
+        const dismiss = document.createElement("button");
+        dismiss.textContent = "닫기";
+        dismiss.addEventListener("click", () => {
+          localStorage.setItem(dismissedKey, "1");
+          banner.remove();
+        });
+
+        banner.appendChild(textSpan);
+        banner.appendChild(link);
+        banner.appendChild(dismiss);
+        document.body.prepend(banner);
       }
-    });
+
+      if (document.body) {
+        renderPopup();
+      } else {
+        document.addEventListener("DOMContentLoaded", renderPopup);
+      }
+    }
+
+    function checkVersionText(text) {
+      if (!text) return;
+      const m = text.match(/@version\s+(\d+\.\d+\.\d+)/);
+      if (!m) return;
+      const remoteVer = m[1];
+      if (verCmp(remoteVer, currentVer) > 0) {
+        showUpdatePopup(remoteVer);
+      }
+    }
+
+    const scriptUrl = "https://raw.githubusercontent.com/sungsoos/wplace-kr/refs/heads/main/wplace-kr.user.js?t=" + Date.now();
+
+    if (typeof GM_xmlhttpRequest === "function") {
+      GM_xmlhttpRequest({
+        method: "GET",
+        url: scriptUrl,
+        onload: function (res) {
+          checkVersionText(res.responseText);
+        },
+        onerror: function () {
+          fetch(scriptUrl).then(r => r.text()).then(checkVersionText).catch(() => {});
+        }
+      });
+    } else {
+      fetch(scriptUrl).then(r => r.text()).then(checkVersionText).catch(() => {});
+    }
   } catch (e) {}
 })();
 
